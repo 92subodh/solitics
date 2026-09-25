@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from academics.models import AcademicYear, Department, FacultySubject, Program, ProgramSubject, Section, SectionStudent, Semester, Subject
 from .academic_admin_serializers import AdminDepartmentCreateSerializer, AdminProgramCreateSerializer, FacultyAssignmentSerializer, StudentAcademicPlacementSerializer
-from .models import AuditLog, FacultyProfile, StudentProfile, User
+from .models import FacultyProfile, StudentProfile, User
 
 
 class AdminAcademicMixin:
@@ -17,18 +17,6 @@ class AdminAcademicMixin:
     def ensure_admin(self, request):
         if not request.user.is_active or not request.user.user_roles.filter(role__role_code=User.Role.ADMIN).exists():
             raise PermissionDenied("An active ADMIN role is required.")
-
-    def audit(self, request, action, entity_type, entity_id, old_value=None, new_value=None):
-        AuditLog.objects.create(
-            user=request.user,
-            action=action,
-            module="ADMIN_ACADEMIC_ASSIGNMENTS",
-            entity_type=entity_type,
-            entity_id=str(entity_id),
-            old_value=old_value,
-            new_value=new_value,
-            ip_address=request.META.get("REMOTE_ADDR"),
-        )
 
 
 class AdminAcademicOptionsView(AdminAcademicMixin, APIView):
@@ -56,14 +44,7 @@ class AdminDepartmentView(AdminAcademicMixin, generics.ListCreateAPIView):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        department = serializer.save()
-        self.audit(
-            self.request,
-            "CREATE_DEPARTMENT",
-            "DEPARTMENT",
-            department.pk,
-            new_value={"department_code": department.department_code, "department_name": department.department_name},
-        )
+        serializer.save()
 
 
 class AdminProgramCreateView(AdminAcademicMixin, APIView):
@@ -72,7 +53,7 @@ class AdminProgramCreateView(AdminAcademicMixin, APIView):
         programs = Program.objects.select_related("department").prefetch_related(
             "semesters", "program_subjects__subject"
         ).order_by("program_name")
-        
+
         data = []
         for p in programs:
             semesters = []
@@ -94,7 +75,7 @@ class AdminProgramCreateView(AdminAcademicMixin, APIView):
                     "semester_number": sem.semester_number,
                     "courses": courses
                 })
-            
+
             data.append({
                 "id": p.id,
                 "program_code": p.program_code,
@@ -151,13 +132,6 @@ class AdminProgramCreateView(AdminAcademicMixin, APIView):
                 semester_courses.append({"subject_id": subject.pk, "code": subject.subject_code, "name": subject.subject_name})
                 created_subjects += 1
             created_semesters.append({"semester_id": semester.pk, "semester_number": semester.semester_number, "courses": semester_courses})
-        self.audit(
-            request,
-            "CREATE_PROGRAM_STRUCTURE",
-            "PROGRAM",
-            program.pk,
-            new_value={"program_code": program.program_code, "semesters": len(created_semesters), "courses": created_subjects},
-        )
         return Response({"program_id": program.pk, "program_code": program.program_code, "program_name": program.program_name, "semesters": created_semesters, "course_count": created_subjects}, status=status.HTTP_201_CREATED)
 
 
@@ -170,15 +144,13 @@ class AdminProgramDetailView(AdminAcademicMixin, APIView):
         except Program.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         data = request.data
-        
-        # Remove courses if requested
+
         if "remove_subject_ids" in data and data["remove_subject_ids"]:
             ProgramSubject.objects.filter(
-                program=program, 
+                program=program,
                 subject_id__in=data["remove_subject_ids"]
             ).delete()
-        
-        # Append-only course addition
+
         if "semesters" in data:
             for semester_data in data["semesters"]:
                 semester, _ = Semester.objects.get_or_create(
@@ -187,7 +159,6 @@ class AdminProgramDetailView(AdminAcademicMixin, APIView):
                     defaults={"name": semester_data.get("name") or f"Semester {semester_data['semester_number']}"}
                 )
                 for course in semester_data.get("courses", []):
-                    # In case it's partially invalid, skip or let exceptions bubble
                     subject, created = Subject.objects.get_or_create(
                         subject_code=course["code"],
                         defaults={
@@ -203,10 +174,6 @@ class AdminProgramDetailView(AdminAcademicMixin, APIView):
                         defaults={"is_core": course.get("is_core", True)}
                     )
 
-        self.audit(
-            request, "UPDATE_PROGRAM", "PROGRAM", program.pk,
-            new_value={"program_code": program.program_code, "program_name": program.program_name}
-        )
         return Response({"detail": "Program updated successfully."})
 
 
@@ -236,7 +203,6 @@ class AdminStudentAcademicView(AdminAcademicMixin, APIView):
         serializer.is_valid(raise_exception=True)
         placement = serializer.validated_data
         section = placement["section_object"]
-        old_section_ids = list(student.sections.values_list("section_id", flat=True))
         student.program_id = section.program_id
         student.department_id = section.program.department_id
         student.current_semester = section.semester.semester_number
@@ -257,14 +223,6 @@ class AdminStudentAcademicView(AdminAcademicMixin, APIView):
                 "status": student.status,
                 "active": True,
             },
-        )
-        self.audit(
-            request,
-            "ASSIGN_STUDENT_ACADEMICS",
-            "STUDENT",
-            student.student_id,
-            old_value={"sections": old_section_ids},
-            new_value={"program": section.program_id, "semester": section.semester.semester_number, "section": section.section_id},
         )
         return Response({
             "student_id": student.student_id,
@@ -299,27 +257,12 @@ class AdminFacultyAssignmentView(AdminAcademicMixin, generics.ListCreateAPIView)
 
     @transaction.atomic
     def perform_create(self, serializer):
-        assignment = serializer.save()
-        self.audit(
-            self.request,
-            "ASSIGN_FACULTY_CLASS",
-            "FACULTY_SUBJECT",
-            assignment.faculty_subject_id,
-            new_value={
-                "faculty": assignment.faculty_id,
-                "subject": assignment.subject_id,
-                "program": assignment.section.program_id,
-                "semester": assignment.semester_id,
-                "section": assignment.section_id,
-                "academic_year": assignment.academic_year_id,
-            },
-        )
+        serializer.save()
 
 
 class AdminFacultyAssignmentDetailView(AdminAcademicMixin, APIView):
     def delete(self, request, pk):
         self.ensure_admin(request)
         assignment = FacultySubject.objects.get(pk=pk)
-        self.audit(request, "REMOVE_FACULTY_CLASS", "FACULTY_SUBJECT", assignment.pk)
         assignment.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

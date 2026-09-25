@@ -1,6 +1,6 @@
 from django.db import transaction
 from rest_framework import serializers
-from .models import AuditLog, Person, Role, User, UserRole, StudentProfile
+from .models import Person, Role, User, UserRole, StudentProfile
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -95,15 +95,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
                 admission_number=profile_data.get("admission_number") or None,
                 current_roll_number=profile_data.get("roll_number") or None,
             )
-        elif "FACULTY" in role_codes or "LIBRARIAN" in role_codes or "ADMIN" in role_codes:
+        elif "FACULTY" in role_codes or "ADMIN" in role_codes:
             from .models import Employee
             Employee.objects.filter(user=user).update(
                 employee_code=profile_data.get("employee_code") or None
-            )
-        elif "PARENT" in role_codes:
-            from .models import ParentProfile
-            ParentProfile.objects.filter(user=user).update(
-                parent_code=profile_data.get("parent_code") or None
             )
         
         return user

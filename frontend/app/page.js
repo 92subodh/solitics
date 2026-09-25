@@ -6,44 +6,20 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
 const NAV = {
   ADMIN: [
-    ["overview", "Overview", "HOME"],
     ["users", "User management", "USERS"],
     ["academic", "Academic assignments", "BOOK"],
-    ["communication", "Communication", "CHAT"],
+    ["programs", "Programs & curriculum", "FILE"],
+    ["communication", "Posts", "CHAT"],
   ],
   FACULTY: [
-    ["overview", "Dashboard", "HOME"],
-    ["profile", "My profile", "PERSON"],
     ["teaching", "Teaching", "BOOK"],
     ["attendance", "Attendance", "CHECK"],
-    ["exams", "Examination", "EXAM"],
-    ["communication", "Communication", "CHAT"],
-    ["leave", "Leave", "CAL"],
+    ["communication", "Posts", "CHAT"],
   ],
   STUDENT: [
-    ["overview", "Dashboard", "HOME"],
     ["profile", "My profile", "PERSON"],
-    ["academics", "Academics", "BOOK"],
-    ["attendance", "Attendance", "CHECK"],
-    ["exams", "Examination", "EXAM"],
-    ["fees", "Fees", "CARD"],
-    ["library", "Library", "BOOK"],
-    ["communication", "Communication", "CHAT"],
-    ["requests", "Requests", "FILE"],
-    ["leave", "Leave", "CAL"],
-    ["events", "Events & clubs", "STAR"],
-  ],
-  LIBRARIAN: [
-    ["overview", "Dashboard", "HOME"],
-    ["profile", "My profile", "PERSON"],
-    ["books", "Books & copies", "BOOK"],
-    ["circulation", "Circulation", "CHECK"],
-    ["reservations", "Reservations", "FILE"],
-    ["fines", "Fines", "CARD"],
-    ["members", "Members", "USERS"],
-    ["inventory", "Inventory", "BOX"],
-    ["communication", "Library notices", "CHAT"],
-    ["reports", "Reports", "CHART"],
+    ["attendance", "My attendance", "CHECK"],
+    ["communication", "Posts", "CHAT"],
   ],
 };
 
@@ -87,8 +63,23 @@ export default function Home() {
   if (loading) return <div className="loader"><span className="mark">C</span><p>Preparing your workspace</p></div>;
   if (!user) return <Login onLogin={login} />;
 
-  const role = user.role || "STUDENT";
-  const navigation = NAV[role] || NAV.STUDENT;
+  const role = user.role || "NONE";
+  const navigation = NAV[role] || [];
+
+  if (navigation.length === 0) {
+    return (
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="brand"><span className="mark">C</span><span>Campus<em>ERP</em></span></div>
+          <div className="sidebar-foot" style={{ marginTop: "auto" }}><div className="avatar">{initials(user)}</div><div><strong>{user.first_name || user.username}</strong><small>{user.email || role}</small></div><button className="logout" title="Sign out" onClick={logout}>↗</button></div>
+        </aside>
+        <main className="main-content">
+          <div className="content-wrap"><div className="page-intro"><span className="eyebrow">ACCESS DENIED</span><h2>No portal for this role.</h2><p>Student features have been removed per requirements.</p></div></div>
+        </main>
+      </div>
+    );
+  }
+
   const current = navigation.find(([id]) => id === active) || navigation[0];
   return (
     <div className="app-shell">
@@ -116,10 +107,16 @@ function Login({ onLogin }) {
 }
 
 function View({ role, id, token, user }) {
-  if (role === "ADMIN") { if (id === "users") return <AdminUsers token={token} />; if (id === "academic") return <><DepartmentBuilder token={token} /><ProgramsPanel token={token} /><AdminAcademic token={token} /></>; if (id === "communication") return <AdminCommunication token={token} />; return <AdminOverview token={token} user={user} />; }
+  if (role === "ADMIN") {
+    if (id === "users") return <AdminUsers token={token} />;
+    if (id === "academic") return <><DepartmentBuilder token={token} /><ProgramsPanel token={token} /><AdminAcademic token={token} /></>;
+    if (id === "programs") return <><DepartmentBuilder token={token} /><ProgramsPanel token={token} /></>;
+    if (id === "communication") return <AdminPosts token={token} />;
+    return <AdminUsers token={token} />;
+  }
   if (role === "FACULTY") return <FacultyView id={id} token={token} />;
-  if (role === "LIBRARIAN") return <LibrarianView id={id} token={token} />;
-  return <StudentView id={id} token={token} />;
+  if (role === "STUDENT") return <StudentView id={id} token={token} />;
+  return <div className="page-intro"><span className="eyebrow">ACCESS DENIED</span><h2>No portal for this role.</h2></div>;
 }
 
 function AdminOverview({ token, user }) {
@@ -147,7 +144,7 @@ function AdminUsers({ token }) {
 
 function CreateUser({ token, close, done }) {
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState({ first_name: "", last_name: "", email: "", phone: "", username: "", password: "", roles: ["STUDENT"], admission_number: "", roll_number: "", employee_code: "", parent_code: "" });
+  const [form, setForm] = useState({ first_name: "", last_name: "", email: "", phone: "", username: "", password: "", roles: ["STUDENT"], admission_number: "", roll_number: "", employee_code: "" });
   const [error, setError] = useState("");
   function update(key, value) { setForm({ ...form, [key]: value }); }
   
@@ -160,13 +157,9 @@ function CreateUser({ token, close, done }) {
         profile_data.roll_number = form.roll_number; 
         username = form.roll_number.toString();
       }
-      else if (form.roles.includes("FACULTY") || form.roles.includes("LIBRARIAN") || form.roles.includes("ADMIN")) { 
+      else if (form.roles.includes("FACULTY") || form.roles.includes("ADMIN")) { 
         profile_data.employee_code = form.employee_code; 
         username = form.employee_code.toString();
-      }
-      else if (form.roles.includes("PARENT")) { 
-        profile_data.parent_code = form.parent_code; 
-        username = form.parent_code.toString();
       }
 
       await request("/admin/users/", token, { method: "POST", body: JSON.stringify({ ...form, username, profile_data }) }); 
@@ -174,7 +167,7 @@ function CreateUser({ token, close, done }) {
     } catch (err) { setError(err.message); } 
   }
 
-  const roleOpts = ["STUDENT", "FACULTY", "ADMIN", "LIBRARIAN", "PARENT"];
+  const roleOpts = ["STUDENT", "FACULTY", "ADMIN"];
 
   return (
     <div className="modal-backdrop">
@@ -213,14 +206,9 @@ function CreateUser({ token, close, done }) {
                 <Field label="Roll number"><input type="number" required value={form.roll_number} onChange={(e) => update("roll_number", e.target.value)} /></Field>
               </>
             )}
-            {(form.roles.includes("FACULTY") || form.roles.includes("LIBRARIAN") || form.roles.includes("ADMIN")) && (
+            {(form.roles.includes("FACULTY") || form.roles.includes("ADMIN")) && (
               <>
                 <Field label="Employee code"><input type="number" required value={form.employee_code} onChange={(e) => update("employee_code", e.target.value)} /></Field>
-              </>
-            )}
-            {form.roles.includes("PARENT") && (
-              <>
-                <Field label="Parent code (Optional)"><input value={form.parent_code} onChange={(e) => update("parent_code", e.target.value)} /></Field>
               </>
             )}
             
@@ -399,29 +387,13 @@ function AdminAcademic({ token }) {
   );
 }
 
-function AdminCommunication({ token }) {
-  const [notices, setNotices] = useState([]);
+function AdminPosts({ token }) {
   const [posts, setPosts] = useState([]);
   const [message, setMessage] = useState("");
-  
-  useEffect(() => {
-    Promise.all([request("/notices/", token), request("/posts/", token)]).then(([a, b]) => {
-      setNotices(a.results || a);
-      setPosts(b.results || b);
-    });
-  }, [token]);
 
-  async function submitNotice(event) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try {
-      await request("/notices/", token, { method: "POST", body: JSON.stringify(Object.fromEntries(form.entries())) });
-      const data = await request("/notices/", token);
-      setNotices(data.results || data);
-      setMessage("Notice broadcasted successfully.");
-      event.currentTarget.reset();
-    } catch(err) { setMessage(err.message); }
-  }
+  useEffect(() => {
+    request("/posts/", token).then((data) => setPosts(data.results || data)).catch(() => {});
+  }, [token]);
 
   async function submitPost(event) {
     event.preventDefault();
@@ -430,13 +402,14 @@ function AdminCommunication({ token }) {
       await request("/posts/", token, { method: "POST", body: JSON.stringify(Object.fromEntries(form.entries())) });
       const data = await request("/posts/", token);
       setPosts(data.results || data);
-      setMessage("Global post published successfully.");
+      setMessage("Post published successfully.");
       event.currentTarget.reset();
     } catch(err) { setMessage(err.message); }
   }
 
-  return <DashboardFrame eyebrow="COMMUNICATION" title="Campus updates" description="Broadcast notices or publish general posts for the entire campus.">{message && <div className="form-message page-message">{message}</div>}<div className="split-grid"><form className="panel compact-form" onSubmit={submitNotice}><span className="eyebrow">NEW NOTICE</span><h2>Broadcast a notice</h2><Field label="Title"><input name="title" required /></Field><Field label="Audience"><select name="audience" required defaultValue="ALL"><option value="ALL">All campus</option><option value="STUDENT">Students only</option><option value="FACULTY">Faculty only</option></select></Field><Field label="Body"><textarea name="body" required rows="4" /></Field><button className="primary-button compact">Broadcast notice</button></form><form className="panel compact-form" onSubmit={submitPost}><span className="eyebrow">NEW POST</span><h2>Publish a global post</h2><Field label="Title"><input name="title" required /></Field><Field label="Visibility"><select name="visibility" required defaultValue="ALL"><option value="ALL">Everyone</option></select></Field><Field label="Content"><textarea name="content" required rows="4" /></Field><button className="primary-button compact">Publish post</button></form></div><div className="split-grid"><InfoPanel title="Recent notices" kicker="BROADCASTS"><DataTable columns={["Title", "Audience", "Published"]} rows={notices.map((item) => [item.title, item.audience, new Date(item.published_at).toLocaleDateString()])} /></InfoPanel><InfoPanel title="Recent posts" kicker="FEED"><DataTable columns={["Title", "Visibility", "Published"]} rows={posts.map((item) => [item.title, item.visibility, new Date(item.created_at).toLocaleDateString()])} /></InfoPanel></div></DashboardFrame>;
+  return <DashboardFrame eyebrow="COMMUNICATION" title="Campus posts" description="Publish posts visible to the entire campus.">{message && <div className="form-message page-message">{message}</div>}<div className="split-grid"><form className="panel compact-form" onSubmit={submitPost}><span className="eyebrow">NEW POST</span><h2>Publish a post</h2><Field label="Title"><input name="title" required /></Field><Field label="Visibility"><select name="visibility" required defaultValue="ALL"><option value="ALL">Everyone</option></select></Field><Field label="Content"><textarea name="content" required rows="4" /></Field><button className="primary-button compact">Publish post</button></form><InfoPanel title="Recent posts" kicker="FEED"><DataTable columns={["Title", "Visibility", "Published"]} rows={posts.map((item) => [item.title, item.visibility, new Date(item.created_at).toLocaleDateString()])} /></InfoPanel></div></DashboardFrame>;
 }
+
 
 function DepartmentBuilder({ token }) {
   const [open, setOpen] = useState(false);
@@ -763,17 +736,11 @@ function ProgramsPanel({ token }) {
 }
 
 function FacultyView({ id, token }) {
-  const configs = { profile: ["/faculty/profile/", "profile"], teaching: ["/faculty/subjects/", "subjects"], attendance: ["/faculty/attendance/reports/", "attendance"], exams: ["/faculty/exams/", "exams"], communication: ["/faculty/posts/", "posts"], leave: ["/faculty/leave-requests/", "leave"] };
-  if (id === "overview") return <FacultyDashboard token={token} />;
-  if (id === "profile") return <ProfileView token={token} faculty />;
   if (id === "teaching") return <FacultyTeaching token={token} />;
   if (id === "attendance") return <FacultyAttendance token={token} />;
-  if (id === "exams") return <FacultyExams token={token} />;
   if (id === "communication") return <FacultyCommunication token={token} />;
-  return <LeaveView token={token} faculty />;
+  return <FacultyTeaching token={token} />;
 }
-
-function FacultyDashboard({ token }) { const [data, setData] = useState(null); useEffect(() => { request("/faculty/dashboard/", token).then(setData).catch(() => setData({})); }, [token]); return <DashboardFrame eyebrow="FACULTY WORKSPACE" title="Your teaching day" description="A focused view of classes, attendance, exams, and the students assigned to you."><Stats items={[{ label: "Subjects assigned", value: data?.subjects_assigned ?? "—", tone: "blue" }, { label: "Students", value: data?.students ?? "—", tone: "green" }, { label: "Pending attendance", value: data?.pending_attendance ?? "—", tone: "yellow" }]} token={token} /><div className="split-grid"><InfoPanel title="Today's classes" kicker="SCHEDULE"><SimpleList items={(data?.today_classes || []).map((item) => `${item.time}  ${item.subject} · ${item.section}`)} empty="No classes scheduled today." /></InfoPanel><InfoPanel title="Upcoming exams" kicker="EXAMINATION"><SimpleList items={(data?.upcoming_exams || []).map((item) => `${item.date}  ${item.subject}`)} empty="No upcoming exams." /></InfoPanel></div></DashboardFrame>; }
 
 function FacultyTeaching({ token }) { 
   const [subjects, setSubjects] = useState([]); 
@@ -813,7 +780,6 @@ function FacultyAttendance({ token }) {
   }
 
   useEffect(() => { 
-    request("/faculty/attendance/reports/", token).then(setReport);
     loadSessions();
   }, [token]); 
 
@@ -841,10 +807,10 @@ function FacultyAttendance({ token }) {
     } catch (err) { setMessage(err.message); } 
   } 
 
-  return <DashboardFrame eyebrow="ATTENDANCE" title="Attendance at a glance" description="Mark attendance for completed classes."><Stats items={[{ label: "Attendance records", value: report?.total ?? "—", tone: "blue" }, { label: "Present or late", value: report?.present ?? "—", tone: "green" }, { label: "Average attendance", value: report ? `${report.percentage}%` : "—", tone: "yellow" }]} token={token} /><div className="panel"><div className="panel-head"><div><span className="eyebrow">CLASSES</span><h2>Scheduled classes</h2></div></div><div style={{ padding: "0 24px" }}>{sessions.length === 0 ? <p className="panel-copy" style={{ padding: "24px 0" }}>No classes scheduled.</p> : sessions.map((session) => <div key={session.attendance_session_id} style={{ borderBottom: "1px solid var(--line)", padding: "16px 0" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><strong>{session.subject} · {session.section}</strong><div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>{session.attendance_date} | {session.start_time} - {session.end_time}</div></div>{session.status === "COMPLETED" ? <span style={{ color: "var(--primary-color)", fontSize: "12px", fontWeight: "600", padding: "4px 8px", background: "var(--primary-bg)", borderRadius: "4px" }}>COMPLETED</span> : <button className="primary-button compact" onClick={() => { setExpanded(expanded?.attendance_session_id === session.attendance_session_id ? null : session); setMessage(""); }}>{expanded?.attendance_session_id === session.attendance_session_id ? "Close" : "Take attendance"}</button>}</div>{expanded?.attendance_session_id === session.attendance_session_id && <form className="attendance-form" style={{ marginTop: "16px", padding: "16px", background: "var(--secondary-bg)", borderRadius: "8px" }} onSubmit={submit}><h4 style={{ margin: "0 0 16px 0", fontSize: "14px" }}>Mark Attendance</h4>{message && <p className="form-message">{message}</p>}<div className="attendance-list">{students.map((student) => <div key={student.student_id}><span><strong>{student.roll_number || "—"}</strong> {student.name}</span><div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>{["PRESENT", "ABSENT", "LATE", "EXCUSED"].map(status => <label key={status} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="radio" name={`status-${student.student_id}`} value={status} checked={statuses[student.student_id] === status} onChange={(e) => setStatuses({ ...statuses, [student.student_id]: e.target.value })} />{status}</label>)}</div></div>)}</div><div style={{ marginTop: "16px", display: "flex", gap: "10px" }}><button type="submit" className="primary-button compact">Mark class completed</button><button type="button" className="secondary-button compact" onClick={() => setExpanded(null)}>Cancel</button></div></form>}</div>)}</div></div></DashboardFrame>; 
+  return <DashboardFrame eyebrow="ATTENDANCE" title="Attendance at a glance" description="Mark attendance for completed classes."><div className="panel"><div className="panel-head"><div><span className="eyebrow">CLASSES</span><h2>Scheduled classes</h2></div></div><div style={{ padding: "0 24px" }}>{sessions.length === 0 ? <p className="panel-copy" style={{ padding: "24px 0" }}>No classes scheduled.</p> : sessions.map((session) => <div key={session.attendance_session_id} style={{ borderBottom: "1px solid var(--line)", padding: "16px 0" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><strong>{session.subject} · {session.section}</strong><div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>{session.attendance_date} | {session.start_time} - {session.end_time}</div></div>{session.status === "COMPLETED" ? <span style={{ color: "var(--primary-color)", fontSize: "12px", fontWeight: "600", padding: "4px 8px", background: "var(--primary-bg)", borderRadius: "4px" }}>COMPLETED</span> : <button className="primary-button compact" onClick={() => { setExpanded(expanded?.attendance_session_id === session.attendance_session_id ? null : session); setMessage(""); }}>{expanded?.attendance_session_id === session.attendance_session_id ? "Close" : "Take attendance"}</button>}</div>{expanded?.attendance_session_id === session.attendance_session_id && <form className="attendance-form" style={{ marginTop: "16px", padding: "16px", background: "var(--secondary-bg)", borderRadius: "8px" }} onSubmit={submit}><h4 style={{ margin: "0 0 16px 0", fontSize: "14px" }}>Mark Attendance</h4>{message && <p className="form-message">{message}</p>}<div className="attendance-list">{students.map((student) => <div key={student.student_id}><span><strong>{student.roll_number || "—"}</strong> {student.name}</span><div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>{["PRESENT", "ABSENT", "LATE", "EXCUSED"].map(status => <label key={status} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="radio" name={`status-${student.student_id}`} value={status} checked={statuses[student.student_id] === status} onChange={(e) => setStatuses({ ...statuses, [student.student_id]: e.target.value })} />{status}</label>)}</div></div>)}</div><div style={{ marginTop: "16px", display: "flex", gap: "10px" }}><button type="submit" className="primary-button compact">Mark class completed</button><button type="button" className="secondary-button compact" onClick={() => setExpanded(null)}>Cancel</button></div></form>}</div>)}</div></div></DashboardFrame>; 
 }
 
-function FacultyExams({ token }) { const [exams, setExams] = useState([]); useEffect(() => { request("/faculty/exams/", token).then(setExams); }, [token]); return <DashboardFrame eyebrow="EXAMINATION" title="Exam schedule" description="Review examinations linked to your assigned subjects and enter marks from the academic workflow."><InfoPanel title="Upcoming and active exams" kicker="SCHEDULE"><DataTable columns={["Exam", "Subject", "Date", "Marks"]} rows={exams.map((item) => [item.exam, item.subject, item.date, `${item.passing_marks}/${item.max_marks}`])} /></InfoPanel></DashboardFrame>; }
+
 
 function FacultyCommunication({ token }) { 
   const [posts, setPosts] = useState([]); 
@@ -873,94 +839,6 @@ function FacultyCommunication({ token }) {
   return <DashboardFrame eyebrow="COMMUNICATION" title="Class communication" description="Publish updates to the sections assigned to you."><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><span className="eyebrow">NEW POST</span><h2>Create an update</h2><Field label="Section"><select name="section" required><option value="">Choose a section</option>{sections.map((sec) => <option key={sec.section_id} value={sec.section_id}>{sec.section_code} (Sem {sec.semester})</option>)}</select></Field><Field label="Title"><input name="title" required /></Field><Field label="Message"><textarea name="content" required rows="4" /></Field>{message && <p className="form-message">{message}</p>}<button className="primary-button compact">Publish post</button></form><InfoPanel title="Your posts" kicker="SECTION UPDATES"><DataTable columns={["Title", "Visibility", "Created"]} rows={posts.map((item) => [item.title, item.visibility, new Date(item.created_at).toLocaleDateString()])} /></InfoPanel></div></DashboardFrame>; 
 }
 
-function StudentView({ id, token }) {
-  if (id === "overview") return <StudentDashboard token={token} />;
-  if (id === "profile") return <ProfileView token={token} />;
-  const pages = { academics: <StudentAcademics token={token} />, attendance: <StudentAttendance token={token} />, exams: <StudentExams token={token} />, fees: <StudentFees token={token} />, library: <StudentLibrary token={token} />, communication: <StudentCommunication token={token} />, requests: <StudentRequests token={token} />, leave: <LeaveView token={token} />, events: <StudentEvents token={token} /> };
-  return pages[id];
-}
-
-function StudentDashboard({ token }) { const [data, setData] = useState(null); useEffect(() => { request("/student/dashboard/", token).then(setData).catch(() => setData({})); }, [token]); return <DashboardFrame eyebrow="STUDENT PORTAL" title={data?.student?.name ? `Welcome back, ${data.student.name.split(" ")[0]}.` : "Your campus, in view."} description="Everything important about your academic day, brought together."><div className="student-identity"><div><span className="eyebrow">CURRENT ACADEMIC IDENTITY</span><h2>{data?.student?.program || "Program not assigned"}</h2><p>{data?.student?.department || "Department"} · Semester {data?.student?.semester || "—"} · Section {data?.student?.section || "—"}</p></div><span className="identity-number">{data?.student?.roll_number || "—"}<small>ROLL NUMBER</small></span></div><Stats items={[{ label: "Attendance", value: data ? `${data.attendance}%` : "—", tone: "blue" }, { label: "Pending fees", value: data?.pending_fees ?? "—", tone: "yellow" }, { label: "Books issued", value: data?.books_issued ?? "—", tone: "green" }]} token={token} /><InfoPanel title="Next up" kicker="EXAMINATION"><p className="panel-copy">{data?.upcoming_exam ? `${data.upcoming_exam.subject} · ${data.upcoming_exam.date}` : "No upcoming examination is listed."}</p></InfoPanel></DashboardFrame>; }
-
-function ProfileView({ token, faculty = false }) { const endpoint = faculty ? "/faculty/profile/" : "/student/profile/"; const [data, setData] = useState(null); const [message, setMessage] = useState(""); useEffect(() => { request(endpoint, token).then(setData); }, [endpoint, token]); async function save(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const payload = Object.fromEntries(form.entries()); try { await request(endpoint, token, { method: "PATCH", body: JSON.stringify(payload) }); setMessage("Profile updated"); } catch (err) { setMessage(err.message); } } return <DashboardFrame eyebrow="PROFILE" title="Personal details" description={faculty ? "View your institutional identity and update contact details." : "Your academic identity is protected. Update only your personal contact information."}><div className="profile-layout"><InfoPanel title="Identity" kicker="READ ONLY"><div className="identity-list"><span><small>Name</small><b>{data?.name || data?.employee_id || "—"}</b></span><span><small>Department</small><b>{data?.department || "—"}</b></span><span><small>Program</small><b>{data?.program || data?.designation || "—"}</b></span><span><small>{faculty ? "Employee ID" : "Admission number"}</small><b>{data?.employee_id || data?.admission_number || "—"}</b></span></div></InfoPanel><form className="panel edit-panel" onSubmit={save}><span className="eyebrow">EDITABLE</span><h2>Contact details</h2><Field label="Email"><input name="email" type="email" defaultValue={data?.email || ""} /></Field><Field label="Phone"><input name="phone" defaultValue={data?.phone || ""} /></Field>{!faculty && <Field label="Emergency contact"><input name="emergency_contact" defaultValue={data?.emergency_contact || ""} /></Field>}{message && <p className="form-message">{message}</p>}<button className="primary-button compact">Save changes</button></form></div></DashboardFrame>; }
-
-function StudentAcademics({ token }) { const [data, setData] = useState(null); useEffect(() => { request("/student/academics/", token).then(setData); }, [token]); return <DashboardFrame eyebrow="ACADEMICS" title="Your academic structure" description="A read-only view of the program, semester, section, and subjects assigned to you."><div className="student-identity academic"><div><span className="eyebrow">PROGRAM</span><h2>{data?.program || "—"}</h2><p>{data?.department || "—"} · Semester {data?.semester || "—"} · Section {data?.section || "—"}</p></div><span className="identity-number">{data?.academic_year || "—"}<small>ACADEMIC YEAR</small></span></div><InfoPanel title="Semester subjects" kicker="CURRICULUM"><DataTable columns={["Code", "Subject", "Credits", "Type"]} rows={(data?.subjects || []).map((item) => [item.code, item.name, item.credits, item.type || "Core"])} /></InfoPanel></DashboardFrame>; }
-
-function StudentAttendance({ token }) { const [data, setData] = useState(null); useEffect(() => { request("/student/attendance/", token).then(setData); }, [token]); return <DashboardFrame eyebrow="ATTENDANCE" title="Your attendance" description="Attendance is read-only. Contact your faculty if a record needs review."><Stats items={[{ label: "Overall", value: data ? `${data.overall_percentage}%` : "—", tone: "blue" }, { label: "Attended", value: data?.attended ?? "—", tone: "green" }, { label: "Sessions", value: data?.total ?? "—", tone: "yellow" }]} token={token} /><InfoPanel title="Attendance history" kicker="RECENT RECORDS"><DataTable columns={["Date", "Subject", "Status"]} rows={(data?.history || []).map((item) => [item.date, item.subject, item.status])} /></InfoPanel></DashboardFrame>; }
-
-function StudentExams({ token }) { const [exams, setExams] = useState([]); const [marks, setMarks] = useState([]); useEffect(() => { Promise.all([request("/student/exams/", token), request("/student/marks/", token)]).then(([a, b]) => { setExams(a); setMarks(b); }); }, [token]); return <DashboardFrame eyebrow="EXAMINATION" title="Exams and marks" description="Your schedules and published marks, kept together."><InfoPanel title="Exam schedule" kicker="UPCOMING"><DataTable columns={["Exam", "Subject", "Date", "Marks"]} rows={exams.map((item) => [item.exam, item.subject, item.date, `${item.passing_marks}/${item.max_marks}`])} /></InfoPanel><InfoPanel title="Published marks" kicker="RESULTS"><DataTable columns={["Exam", "Subject", "Obtained"]} rows={marks.map((item) => [item.exam, item.subject, item.marks_obtained])} /></InfoPanel></DashboardFrame>; }
-
-function StudentFees({ token }) { const [summary, setSummary] = useState(null); const [invoices, setInvoices] = useState([]); const [message, setMessage] = useState(""); useEffect(() => { Promise.all([request("/student/fees/summary/", token), request("/student/fees/invoices/", token)]).then(([a, b]) => { setSummary(a); setInvoices(b); }); }, [token]); async function pay(invoice) { try { const result = await request("/student/fees/payments/", token, { method: "POST", body: JSON.stringify({ invoice: invoice.invoice_id }) }); setMessage(`Payment ${result.status.toLowerCase()} for ${invoice.invoice_number}.`); } catch (err) { setMessage(err.message); } } return <DashboardFrame eyebrow="FEES" title="Your fee statement" description="View invoices and payment status. Amounts are controlled by the institution."><Stats items={[{ label: "Total fees", value: summary?.total ?? "—", tone: "blue" }, { label: "Paid", value: summary?.paid ?? "—", tone: "green" }, { label: "Pending", value: summary?.pending ?? "—", tone: "yellow" }]} token={token} />{message && <div className="form-message page-message">{message}</div>}<InfoPanel title="Invoices" kicker="STATEMENT"><div className="data-table"><table><thead><tr><th>Invoice</th><th>Due date</th><th>Total</th><th>Status</th><th /></tr></thead><tbody>{invoices.map((item) => <tr key={item.invoice_id}><td>{item.invoice_number}</td><td>{item.due_date}</td><td>{item.total_amount}</td><td>{item.status}</td><td>{item.status !== "PAID" && <button className="text-button" onClick={() => pay(item)}>Start payment</button>}</td></tr>)}</tbody></table>{!invoices.length && <Empty title="No invoices yet" text="Your institution has not published a fee invoice." />}</div></InfoPanel></DashboardFrame>; }
-
-function StudentLibrary({ token }) { const [books, setBooks] = useState([]); const [issues, setIssues] = useState([]); const [message, setMessage] = useState(""); useEffect(() => { Promise.all([request("/student/library/books/", token), request("/student/library/issues/", token)]).then(([a, b]) => { setBooks(a); setIssues(b); }); }, [token]); async function renew(issue) { try { const result = await request(`/student/library/issues/${issue.issue_id}/renew/`, token, { method: "POST", body: "{}" }); setIssues(issues.map((item) => item.issue_id === issue.issue_id ? { ...item, due_date: result.due_date, status: result.status } : item)); } catch (err) { setMessage(err.message); } } return <DashboardFrame eyebrow="LIBRARY" title="Library desk" description="Search the catalogue and keep an eye on your issued books.">{message && <div className="error-message page-message">{message}</div>}<div className="split-grid"><InfoPanel title="My issued books" kicker="LOANS"><div className="data-table"><table><thead><tr><th>Book</th><th>Due date</th><th>Status</th><th /></tr></thead><tbody>{issues.map((item) => <tr key={item.issue_id}><td>{item.book}</td><td>{item.due_date}</td><td>{item.status}</td><td>{!item.return_date && <button className="text-button" onClick={() => renew(item)}>Renew</button>}</td></tr>)}</tbody></table>{!issues.length && <Empty title="No books issued" text="Your active loans will appear here." />}</div></InfoPanel><InfoPanel title="Catalogue" kicker="SEARCH"><DataTable columns={["Title", "Author", "Available"]} rows={books.slice(0, 8).map((item) => [item.title, item.author, item.available])} /></InfoPanel></div></DashboardFrame>; }
-
-function StudentCommunication({ token }) { const [notices, setNotices] = useState([]); const [posts, setPosts] = useState([]); useEffect(() => { Promise.all([request("/student/notices/", token), request("/student/posts/", token)]).then(([a, b]) => { setNotices(a); setPosts(b); }); }, [token]); return <DashboardFrame eyebrow="COMMUNICATION" title="Campus updates" description="Notices and posts targeted to you and your section."><div className="split-grid"><InfoPanel title="Notices" kicker="INBOX"><SimpleList items={notices.map((item) => item.title)} empty="No notices yet." /></InfoPanel><InfoPanel title="Posts" kicker="SECTION FEED"><SimpleList items={posts.map((item) => item.title)} empty="No posts yet." /></InfoPanel></div></DashboardFrame>; }
-
-function StudentRequests({ token }) { const [items, setItems] = useState([]); const [error, setError] = useState(""); useEffect(() => { request("/student/requests/", token).then((data) => setItems(data.results || data)); }, [token]); async function submit(event) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await request("/student/requests/", token, { method: "POST", body: JSON.stringify(Object.fromEntries(form.entries())) }); setItems(await request("/student/requests/", token)); event.currentTarget.reset(); } catch (err) { setError(err.message); } } return <DashboardFrame eyebrow="REQUESTS" title="Student services" description="Submit a request and follow its progress without visiting another office."><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><span className="eyebrow">NEW REQUEST</span><h2>Request a document</h2><Field label="Request type"><select name="request_type" defaultValue="BONAFIDE"><option>BONAFIDE</option><option>TRANSCRIPT</option><option>ID_CARD</option><option>TRANSFER_CERTIFICATE</option></select></Field><Field label="Details"><textarea name="description" required rows="4" /></Field>{error && <div className="error-message">{error}</div>}<button className="primary-button compact">Submit request</button></form><InfoPanel title="Your requests" kicker="STATUS"><DataTable columns={["Type", "Submitted", "Status"]} rows={items.map((item) => [item.request_type, item.submitted_at, item.status])} /></InfoPanel></div></DashboardFrame>; }
-
-function LeaveView({ token, faculty = false }) { const endpoint = faculty ? "/faculty/leave-requests/" : "/student/leave/"; const [items, setItems] = useState([]); const [types, setTypes] = useState([]); useEffect(() => { request(endpoint, token).then((data) => setItems(data.results || data)); }, [endpoint, token]); async function submit(event) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await request(endpoint, token, { method: "POST", body: JSON.stringify(Object.fromEntries(form.entries())) }); setItems(await request(endpoint)); event.currentTarget.reset(); } catch (err) { window.alert(err.message); } } return <DashboardFrame eyebrow="LEAVE" title="Leave requests" description="Submit leave and track its approval status."><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><span className="eyebrow">NEW APPLICATION</span><h2>Apply for leave</h2><Field label="Leave type"><input name="leave_type" type="number" placeholder="Leave type ID" required /></Field><Field label="From"><input name="start_date" type="date" required /></Field><Field label="To"><input name="end_date" type="date" required /></Field><Field label="Reason"><textarea name="reason" required rows="3" /></Field><button className="primary-button compact">Submit application</button></form><InfoPanel title="History" kicker="TRACKING"><DataTable columns={["From", "To", "Status"]} rows={items.map((item) => [item.start_date, item.end_date, item.status])} /></InfoPanel></div></DashboardFrame>; }
-
-function StudentEvents({ token }) { const [events, setEvents] = useState([]); const [clubs, setClubs] = useState([]); useEffect(() => { Promise.all([request("/student/events/", token), request("/student/clubs/", token)]).then(([a, b]) => { setEvents(a); setClubs(b); }); }, [token]); async function register(id) { await request(`/student/events/${id}/register/`, token, { method: "POST", body: "{}" }); } async function join(id) { await request(`/student/clubs/${id}/join/`, token, { method: "POST", body: "{}" }); } return <DashboardFrame eyebrow="CAMPUS LIFE" title="Events and clubs" description="Find the things happening beyond the timetable."><div className="split-grid"><InfoPanel title="Upcoming events" kicker="EVENTS"><div className="event-list">{events.map((item) => <div className="event-row" key={item.event_id}><span className="event-date">{new Date(item.start_at).toLocaleDateString("en", { day: "2-digit", month: "short" })}</span><span><strong>{item.name}</strong><small>{item.venue}</small></span><button className="text-button" onClick={() => register(item.event_id)}>Register</button></div>)}</div></InfoPanel><InfoPanel title="Clubs" kicker="MEMBERSHIPS"><div className="event-list">{clubs.map((item) => <div className="event-row" key={item.club_id}><span className="club-dot">✦</span><span><strong>{item.name}</strong><small>{item.description}</small></span><button className="text-button" onClick={() => join(item.club_id)}>Join</button></div>)}</div></InfoPanel></div></DashboardFrame>; }
-
-function LibrarianView({ id, token }) {
-  if (id === "overview") return <LibrarianDashboard token={token} />;
-  if (id === "profile") return <ProfileView token={token} faculty />;
-  if (id === "books") return <LibrarianBooks token={token} />;
-  if (id === "circulation") return <LibrarianCirculation token={token} />;
-  if (id === "reservations") return <LibrarianReservations token={token} />;
-  if (id === "fines") return <LibrarianFines token={token} />;
-  if (id === "members") return <LibrarianMembers token={token} />;
-  if (id === "inventory") return <LibrarianInventory token={token} />;
-  if (id === "communication") return <LibrarianNotices token={token} />;
-  return <LibrarianReports token={token} />;
-}
-
-function useLibraryData(token) {
-  const [books, setBooks] = useState([]);
-  const [loans, setLoans] = useState([]);
-  const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    Promise.all([request("/books/", token), request("/loans/", token)])
-      .then(([bookData, loanData]) => { setBooks(bookData.results || bookData); setLoans(loanData.results || loanData); })
-      .catch((err) => setError(err.message));
-  }, [token, refresh]);
-  return { books, loans, error, reload: () => setRefresh((value) => value + 1) };
-}
-
-function LibrarianDashboard({ token }) {
-  const { books, loans, error } = useLibraryData(token);
-  const issued = loans.filter((loan) => !loan.returned_on).length;
-  const available = books.reduce((sum, book) => sum + Number(book.copies_available || 0), 0);
-  return <DashboardFrame eyebrow="LIBRARY OPERATIONS" title="The library, in motion." description="A working view of inventory, circulation, and the people relying on it.">{error && <div className="error-message">{error}</div>}<Stats items={[{ label: "Book titles", value: books.length, tone: "blue" }, { label: "Available copies", value: available, tone: "green" }, { label: "Current issues", value: issued, tone: "yellow" }]} /><div className="split-grid"><InfoPanel title="Today's focus" kicker="LIBRARY DESK"><div className="mini-list"><span><b>01</b> Search a member before issuing</span><span><b>02</b> Confirm copy condition on return</span><span><b>03</b> Review overdue circulation daily</span></div></InfoPanel><InfoPanel title="Quick actions" kicker="CIRCULATION"><div className="quick-actions"><button className="action-link">Issue a book <span>↗</span></button><button className="action-link">Record a return <span>↗</span></button></div></InfoPanel></div></DashboardFrame>;
-}
-
-function LibrarianBooks({ token }) {
-  const { books, error, reload } = useLibraryData(token);
-  const [query, setQuery] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [message, setMessage] = useState("");
-  const visible = books.filter((book) => `${book.title} ${book.author} ${book.isbn}`.toLowerCase().includes(query.toLowerCase()));
-  async function create(event) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await request("/books/", token, { method: "POST", body: JSON.stringify({ title: form.get("title"), author: form.get("author"), isbn: form.get("isbn"), copies_total: Number(form.get("copies_total")), copies_available: Number(form.get("copies_total")) }) }); setShowForm(false); setMessage("Book title added to the catalogue."); reload(); } catch (err) { setMessage(err.message); } }
-  return <DashboardFrame eyebrow="LIBRARY MANAGEMENT" title="Books and copies" description="Manage the catalogue at title level. Physical circulation is tracked through copies and loans."><div className="toolbar"><div className="search-box"><span>⌕</span><input placeholder="Search title, author, ISBN" value={query} onChange={(event) => setQuery(event.target.value)} /></div><button className="primary-button compact" onClick={() => setShowForm(true)}>＋ Add book</button></div>{error && <div className="error-message">{error}</div>}{message && <p className="form-message page-message">{message}</p>}{showForm && <div className="panel compact-form"><form className="form-grid" onSubmit={create}><Field label="Title"><input name="title" required /></Field><Field label="Author"><input name="author" required /></Field><Field label="ISBN"><input name="isbn" required /></Field><Field label="Copies"><input name="copies_total" type="number" min="1" defaultValue="1" required /></Field><div className="modal-actions full"><button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Cancel</button><button className="primary-button">Add to catalogue</button></div></form></div>}<InfoPanel title="Catalogue" kicker={`${visible.length} TITLES`}><DataTable columns={["Title", "Author", "ISBN", "Total", "Available"]} rows={visible.map((book) => [book.title, book.author, book.isbn, book.copies_total, book.copies_available])} /></InfoPanel></DashboardFrame>;
-}
-
-function LibrarianCirculation({ token }) {
-  const { loans, error, reload } = useLibraryData(token);
-  const [busy, setBusy] = useState("");
-  async function returnBook(loan) { setBusy(loan.id); try { await request(`/loans/${loan.id}/return-book/`, token, { method: "POST", body: "{}" }); reload(); } catch (err) { window.alert(err.message); } finally { setBusy(""); } }
-  async function renew(loan) { const due = window.prompt("New due date (YYYY-MM-DD)", loan.due_on); if (!due) return; try { await request(`/loans/${loan.id}/reissue/`, token, { method: "POST", body: JSON.stringify({ due_on: due }) }); reload(); } catch (err) { window.alert(err.message); } }
-  const active = loans.filter((loan) => !loan.returned_on);
-  return <DashboardFrame eyebrow="CIRCULATION" title="Issue and return desk" description="Keep every physical copy accountable from checkout to return.">{error && <div className="error-message">{error}</div>}<Stats items={[{ label: "Current issues", value: active.length, tone: "blue" }, { label: "Returned records", value: loans.length - active.length, tone: "green" }, { label: "Overdue review", value: active.filter((loan) => loan.due_on && new Date(loan.due_on) < new Date()).length, tone: "yellow" }]} /><InfoPanel title="Active circulation" kicker="CURRENT ISSUES"><div className="data-table"><table><thead><tr><th>Book</th><th>Borrower</th><th>Issued</th><th>Due</th><th>Actions</th></tr></thead><tbody>{active.map((loan) => <tr key={loan.id}><td>{loan.book}</td><td>{loan.borrower}</td><td>{loan.issued_on}</td><td>{loan.due_on}</td><td><div className="row-actions"><button onClick={() => renew(loan)}>Renew</button><button onClick={() => returnBook(loan)} disabled={busy === loan.id}>{busy === loan.id ? "Saving..." : "Return"}</button></div></td></tr>)}</tbody></table>{!active.length && <Empty title="No active loans" text="Issued books will appear here." />}</div></InfoPanel></DashboardFrame>;
-}
-
-function LibrarianReservations({ token }) { return <DashboardFrame eyebrow="CIRCULATION" title="Reservations" description="Process holds and prepare requested titles for pickup."><InfoPanel title="Reservation queue" kicker="PENDING"><Empty title="No reservation endpoint yet" text="The backend reservation workflow is ready for its librarian API integration." /></InfoPanel></DashboardFrame>; }
-function LibrarianFines({ token }) { return <DashboardFrame eyebrow="CIRCULATION" title="Fines" description="Review outstanding charges and keep resolution auditable."><InfoPanel title="Fine history" kicker="ACCOUNTABILITY"><Empty title="No fine records yet" text="Fine calculation and waiver actions will appear when the librarian API is enabled." /></InfoPanel></DashboardFrame>; }
-function LibrarianMembers({ token }) { const { loans } = useLibraryData(token); const members = [...new Map(loans.map((loan) => [loan.borrower, loan])).values()]; return <DashboardFrame eyebrow="MEMBERS" title="Library members" description="Search the circulation history of students and staff without changing their institutional accounts."><InfoPanel title="Borrowers in circulation" kicker="MEMBER ACTIVITY"><DataTable columns={["Member", "Active books", "Latest due date"]} rows={members.map((member) => [member.borrower, loans.filter((loan) => loan.borrower === member.borrower && !loan.returned_on).length, member.due_on])} /></InfoPanel></DashboardFrame>; }
-function LibrarianInventory({ token }) { const { books } = useLibraryData(token); const total = books.reduce((sum, book) => sum + Number(book.copies_total || 0), 0); const available = books.reduce((sum, book) => sum + Number(book.copies_available || 0), 0); return <DashboardFrame eyebrow="INVENTORY" title="Inventory health" description="A quick view of title and copy counts. Copy incidents will be tracked through the library API as it is enabled."><Stats items={[{ label: "Titles", value: books.length, tone: "blue" }, { label: "Total copies", value: total, tone: "green" }, { label: "In circulation", value: total - available, tone: "yellow" }]} /><InfoPanel title="Inventory notes" kicker="AUDIT"><p className="panel-copy">Use accession numbers and copy status for lost, damaged, missing, maintenance, and disposed items. The current backend exposes title-level books and loans; physical copy incidents are reserved for the next library API slice.</p></InfoPanel></DashboardFrame>; }
-function LibrarianNotices({ token }) { return <DashboardFrame eyebrow="COMMUNICATION" title="Library notices" description="Prepare library-specific updates for members and the campus community."><InfoPanel title="Notice composer" kicker="LIBRARY CHANNEL"><p className="panel-copy">Library notices will target members without granting access to college-wide administration.</p><button className="primary-button compact" onClick={() => window.alert("Library notice creation will connect when the librarian notice endpoint is enabled.")}>Compose notice</button></InfoPanel></DashboardFrame>; }
-function LibrarianReports({ token }) { const { books, loans } = useLibraryData(token); return <DashboardFrame eyebrow="REPORTS" title="Library reports" description="Scan circulation and inventory signals from one operational view."><Stats items={[{ label: "Titles", value: books.length, tone: "blue" }, { label: "Issues recorded", value: loans.length, tone: "green" }, { label: "Open issues", value: loans.filter((loan) => !loan.returned_on).length, tone: "yellow" }]} /><InfoPanel title="Report coverage" kicker="AVAILABLE NOW"><div className="mini-list"><span><b>01</b> Title and copy availability</span><span><b>02</b> Current and returned loans</span><span><b>03</b> Overdue review from due dates</span></div></InfoPanel></DashboardFrame>; }
-
 function DashboardFrame({ eyebrow, title, description, children }) { return <><div className="page-intro"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>{children}</>; }
 function Stats({ items }) { return <div className="stats-grid">{items.map((item) => <div className={`stat-card ${item.tone || "blue"}`} key={item.label}><span>{item.label}</span><strong>{item.value ?? "—"}</strong><small>{item.hint || "Current view"}</small></div>)}</div>; }
 function InfoPanel({ title, kicker, children }) { return <section className="panel"><div className="panel-head"><div><span className="eyebrow">{kicker}</span><h2>{title}</h2></div></div>{children}</section>; }
@@ -970,3 +848,83 @@ function Empty({ title, text }) { return <div className="empty-state"><strong>{t
 function Field({ label, children }) { return <label className="field"><span className="field-label">{label}</span>{children}</label>; }
 function initials(item) { return `${(item.first_name || item.username || "U")[0]}${item.last_name ? item.last_name[0] : ""}`.toUpperCase(); }
 function Icon({ name }) { return <span className="nav-icon" aria-hidden="true">{({ HOME: "⌂", USERS: "◎", PERSON: "○", BOOK: "▤", CHECK: "✓", EXAM: "◇", CHAT: "□", CAL: "▦", CARD: "▱", FILE: "▤", STAR: "✦", BOX: "▥", CHART: "▥" })[name] || "·"}</span>; }
+
+function StudentView({ id, token }) {
+  if (id === "profile") return <StudentProfile token={token} />;
+  if (id === "attendance") return <StudentAttendance token={token} />;
+  if (id === "communication") return <StudentPosts token={token} />;
+  return <StudentProfile token={token} />;
+}
+
+function StudentProfile({ token }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { request("/student/profile/", token).then(setData); }, [token]);
+  
+  return (
+    <DashboardFrame eyebrow="PROFILE" title="Personal details" description="Your academic identity is protected. This is a read-only view.">
+      <div className="profile-layout">
+        <InfoPanel title="Identity" kicker="READ ONLY">
+          <div className="identity-list">
+            <span><small>Name</small><b>{data?.name || "—"}</b></span>
+            <span><small>Program</small><b>{data?.program || "—"}</b></span>
+            <span><small>Department</small><b>{data?.department || "—"}</b></span>
+            <span><small>Admission Number</small><b>{data?.admission_number || "—"}</b></span>
+            <span><small>Roll Number</small><b>{data?.roll_number || "—"}</b></span>
+            <span><small>Semester</small><b>{data?.semester || "—"}</b></span>
+            <span><small>Status</small><b>{data?.status || "—"}</b></span>
+          </div>
+        </InfoPanel>
+        <InfoPanel title="Contact" kicker="INFO">
+          <div className="identity-list">
+            <span><small>Email</small><b>{data?.email || "—"}</b></span>
+            <span><small>Phone</small><b>{data?.phone || "—"}</b></span>
+            <span><small>Guardian</small><b>{data?.guardian_name || "—"}</b></span>
+            <span><small>Guardian Phone</small><b>{data?.guardian_phone || "—"}</b></span>
+          </div>
+        </InfoPanel>
+      </div>
+    </DashboardFrame>
+  );
+}
+
+function StudentAttendance({ token }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { request("/student/attendance/", token).then(setData); }, [token]);
+  
+  return (
+    <DashboardFrame eyebrow="ATTENDANCE" title="Your attendance" description="Attendance is read-only. Contact your faculty if a record needs review.">
+      <Stats items={[
+        { label: "Overall", value: data ? `${data.overall_percentage}%` : "—", tone: "blue" },
+        { label: "Attended", value: data?.attended ?? "—", tone: "green" },
+        { label: "Total Sessions", value: data?.total ?? "—", tone: "yellow" }
+      ]} token={token} />
+      <InfoPanel title="Attendance history" kicker="RECENT RECORDS">
+        <DataTable columns={["Date", "Subject", "Status"]} rows={(data?.history || []).map((item) => [item.date, item.subject, item.status])} />
+      </InfoPanel>
+    </DashboardFrame>
+  );
+}
+
+function StudentPosts({ token }) {
+  const [posts, setPosts] = useState([]);
+  useEffect(() => { request("/student/posts/", token).then(setPosts); }, [token]);
+  
+  return (
+    <DashboardFrame eyebrow="COMMUNICATION" title="Campus posts" description="Announcements from your faculty and administration.">
+      <div className="split-grid">
+        <InfoPanel title="Recent posts" kicker="FEED">
+          {posts.length === 0 ? <Empty title="No posts yet" text="Check back later for announcements." /> : posts.map((post) => (
+            <div key={post.post_id} className="post-card" style={{ padding: "16px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                <h3 style={{ margin: 0, fontSize: "16px" }}>{post.title}</h3>
+                <span className="tag">{new Date(post.created_at).toLocaleDateString()}</span>
+              </div>
+              <p style={{ margin: "0 0 12px 0", color: "var(--text-secondary)", fontSize: "14px", lineHeight: "1.5" }}>{post.content}</p>
+              <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}><strong>Posted by:</strong> {post.author}</div>
+            </div>
+          ))}
+        </InfoPanel>
+      </div>
+    </DashboardFrame>
+  );
+}

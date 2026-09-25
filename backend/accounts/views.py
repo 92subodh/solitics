@@ -4,7 +4,7 @@ from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import AuditLog, Role, User
+from .models import Role, User
 from .permissions import IsAdminOrReadOnly
 from .serializers import AdminUserSerializer, UserSerializer
 
@@ -20,21 +20,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly]
 
 
-class IsAdminRoleMixin:
-    def _audit(self, request, action_name, target, old_value=None, new_value=None):
-        AuditLog.objects.create(
-            user=request.user,
-            action=action_name,
-            module="ADMIN_USER_MANAGEMENT",
-            entity_type="USER",
-            entity_id=str(target.pk),
-            old_value=old_value,
-            new_value=new_value,
-            ip_address=request.META.get("REMOTE_ADDR"),
-        )
-
-
-class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
+class AdminUserViewSet(viewsets.ModelViewSet):
     serializer_class = AdminUserSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
@@ -78,14 +64,11 @@ class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
     @transaction.atomic
     def perform_create(self, serializer):
         user = serializer.save()
-        self._audit(self.request, "CREATE_USER", user, new_value={"username": user.username})
 
     @transaction.atomic
     def perform_update(self, serializer):
         target = self.get_object()
-        old_value = {"is_active": target.is_active, "roles": list(target.user_roles.values_list("role__role_code", flat=True))}
         user = serializer.save()
-        self._audit(self.request, "UPDATE_USER", user, old_value=old_value)
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
@@ -95,7 +78,6 @@ class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
                 {"detail": "Administrator accounts cannot be deleted."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        self._audit(request, "DELETE_USER", user, old_value={"username": user.username})
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["patch"], url_path="status")
@@ -104,10 +86,8 @@ class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
         is_active = request.data.get("is_active")
         if not isinstance(is_active, bool):
             return Response({"is_active": "This field must be a boolean."}, status=status.HTTP_400_BAD_REQUEST)
-        old_value = {"is_active": user.is_active}
         user.is_active = is_active
         user.save(update_fields=("is_active", "updated_at"))
-        self._audit(request, "ACTIVATE_USER" if is_active else "DEACTIVATE_USER", user, old_value=old_value, new_value={"is_active": is_active})
         return Response(self.get_serializer(user).data)
 
     @action(detail=True, methods=["patch"], url_path="roles")
@@ -115,10 +95,7 @@ class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
         user = self.get_object()
         serializer = self.get_serializer(user, data={"roles": request.data.get("roles")}, partial=True)
         serializer.is_valid(raise_exception=True)
-        old_roles = list(user.user_roles.values_list("role__role_code", flat=True))
         serializer.save()
-        new_roles = list(user.user_roles.values_list("role__role_code", flat=True))
-        self._audit(request, "CHANGE_USER_ROLES", user, old_value={"roles": old_roles}, new_value={"roles": new_roles})
         return Response(self.get_serializer(user).data)
 
     @action(detail=True, methods=["post"], url_path="reset-password")
@@ -129,7 +106,6 @@ class AdminUserViewSet(IsAdminRoleMixin, viewsets.ModelViewSet):
             return Response({"new_password": "Use at least 8 characters."}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(new_password)
         user.save(update_fields=("password", "updated_at"))
-        self._audit(request, "RESET_PASSWORD", user)
         return Response({"detail": "Password reset successfully."})
 
 
