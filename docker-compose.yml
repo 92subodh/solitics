@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: college_erp
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp
+    ports: ["5432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+  backend:
+    build: ./backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes: [./backend:/app]
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [db]
+volumes:
+  postgres_data:
