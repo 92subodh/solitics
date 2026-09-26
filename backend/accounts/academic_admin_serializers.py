@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from academics.models import AcademicYear, Department, FacultySubject, Program, ProgramSubject, Section, Semester, Subject
+from academics.models import AcademicYear, Department, FacultySubject, Program, ProgramSubject, Semester, Subject
 from .models import FacultyProfile, StudentProfile
 
 
@@ -67,99 +67,69 @@ class AdminProgramCreateSerializer(serializers.Serializer):
 
 class StudentAcademicPlacementSerializer(serializers.Serializer):
     program = serializers.IntegerField()
-    department = serializers.IntegerField(required=False)
     semester = serializers.IntegerField()
-    section = serializers.IntegerField(required=False)
     academic_year = serializers.IntegerField(required=False)
     roll_number = serializers.CharField(required=False, allow_blank=True)
     status = serializers.CharField(required=False)
 
     def validate(self, attrs):
-        student = self.context["student"]
-        if "section" in attrs:
-            section = Section.objects.select_related("program", "semester", "academic_year").filter(pk=attrs["section"]).first()
-            if not section:
-                raise serializers.ValidationError({"section": "Section does not exist."})
-            if section.program_id != attrs["program"]:
-                raise serializers.ValidationError({"section": "Section does not belong to the selected program."})
-            if section.semester_id != attrs["semester"]:
-                raise serializers.ValidationError({"semester": "Section does not belong to the selected semester."})
-            if attrs.get("academic_year") and section.academic_year_id != attrs["academic_year"]:
-                raise serializers.ValidationError({"academic_year": "Section does not belong to the selected academic year."})
-            if attrs.get("department") and section.program.department_id != attrs["department"]:
-                raise serializers.ValidationError({"department": "Department does not belong to the selected program."})
-        else:
-            academic_year_id = attrs.get("academic_year")
-            if not academic_year_id:
-                latest_year = AcademicYear.objects.order_by("-start_date").first()
-                if not latest_year:
-                    raise serializers.ValidationError({"academic_year": "No academic year exists in the system."})
-                academic_year_id = latest_year.pk
-            
-            section, _ = Section.objects.get_or_create(
-                program_id=attrs["program"],
-                semester_id=attrs["semester"],
-                academic_year_id=academic_year_id,
-                defaults={"section_code": "A"}
-            )
-            # If get_or_create didn't use defaults and returned an existing one, 
-            # make sure it actually exists (it always will if get_or_create succeeds).
-            
-        attrs["section_object"] = section
+        if not Program.objects.filter(pk=attrs["program"]).exists():
+            raise serializers.ValidationError({"program": "Program does not exist."})
+        if not Semester.objects.filter(pk=attrs["semester"], program_id=attrs["program"]).exists():
+            raise serializers.ValidationError({"semester": "Semester does not belong to the selected program."})
+        if "academic_year" in attrs and not AcademicYear.objects.filter(pk=attrs["academic_year"]).exists():
+            raise serializers.ValidationError({"academic_year": "Academic year does not exist."})
         return attrs
 
 
 class FacultyAssignmentSerializer(serializers.ModelSerializer):
     semester = serializers.PrimaryKeyRelatedField(queryset=Semester.objects.all(), required=False)
-    section = serializers.PrimaryKeyRelatedField(queryset=Section.objects.all(), required=False)
     academic_year = serializers.PrimaryKeyRelatedField(queryset=AcademicYear.objects.all(), required=False)
+
+    faculty_name = serializers.SerializerMethodField(read_only=True)
+    subject_code = serializers.CharField(source="subject.subject_code", read_only=True)
+    subject_name = serializers.CharField(source="subject.subject_name", read_only=True)
+    semester_number = serializers.IntegerField(source="semester.semester_number", read_only=True)
+    academic_year_code = serializers.CharField(source="academic_year.year_code", read_only=True)
 
     class Meta:
         model = FacultySubject
-        fields = ("faculty", "subject", "academic_year", "semester", "section")
+        fields = (
+            "faculty_subject_id", "faculty", "faculty_name",
+            "subject", "subject_code", "subject_name",
+            "semester", "semester_number",
+            "academic_year", "academic_year_code",
+        )
         validators = []
+
+    def get_faculty_name(self, obj):
+        try:
+            return obj.faculty.employee.user.display_name
+        except Exception:
+            return None
 
     def validate(self, attrs):
         subject = attrs["subject"]
         faculty = attrs["faculty"]
-        
+
         if not isinstance(faculty, FacultyProfile):
             raise serializers.ValidationError({"faculty": "Select a faculty profile."})
 
-        if "semester" not in attrs or "section" not in attrs:
+        if "semester" not in attrs:
             ps = ProgramSubject.objects.filter(subject=subject).first()
             if not ps:
                 raise serializers.ValidationError({"subject": "This subject is not assigned to any program."})
-            
-            semester = ps.semester
-            
-            academic_year = attrs.get("academic_year")
+            attrs["semester"] = ps.semester
+
+        if "academic_year" not in attrs:
+            academic_year = AcademicYear.objects.order_by("-start_date").first()
             if not academic_year:
-                academic_year = AcademicYear.objects.order_by("-start_date").first()
-                if not academic_year:
-                    raise serializers.ValidationError({"academic_year": "No academic year exists."})
-                attrs["academic_year"] = academic_year
-                
-            section, _ = Section.objects.get_or_create(
-                program=ps.program,
-                semester=semester,
-                academic_year=academic_year,
-                defaults={"section_code": "A"}
-            )
-            
-            attrs["semester"] = semester
-            attrs["section"] = section
-        else:
-            section = attrs["section"]
-            semester = attrs["semester"]
-            if section.semester_id != semester.pk:
-                raise serializers.ValidationError({"semester": "The semester must match the section."})
-            if subject not in Subject.objects.filter(program_subjects__program=section.program, program_subjects__semester=semester):
-                raise serializers.ValidationError({"subject": "The subject is not part of this program semester."})
-                
+                raise serializers.ValidationError({"academic_year": "No academic year exists."})
+            attrs["academic_year"] = academic_year
+
         if FacultySubject.objects.filter(
-            faculty=faculty, subject=subject, academic_year=attrs["academic_year"], semester=attrs["semester"], section=attrs["section"]
+            faculty=faculty, subject=subject, academic_year=attrs["academic_year"], semester=attrs["semester"]
         ).exists():
             raise serializers.ValidationError("This faculty assignment already exists.")
-            
+
         return attrs

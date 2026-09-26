@@ -7,7 +7,6 @@ from rest_framework.views import APIView
 from .models import User
 from attendance.models import StudentAttendance
 from communication.models import Post
-from django.db.models import Q
 
 
 class StudentAccessMixin:
@@ -71,17 +70,8 @@ class StudentAttendanceView(StudentAccessMixin, APIView):
 
 class StudentPostView(StudentAccessMixin, APIView):
     def get(self, request):
-        profile = self.get_student_profile(request)
-        
-        # Get all sections the student is enrolled in
-        section_ids = profile.sections.values_list("section_id", flat=True)
-        section_visibilities = [f"SECTION:{sid}" for sid in section_ids]
-        
-        # Fetch posts that are visible to ALL or specific to the student's sections
-        posts = Post.objects.filter(
-            Q(visibility="ALL") | Q(visibility__in=section_visibilities)
-        ).select_related("created_by").order_by("-created_at")
-        
+        self.get_student_profile(request)
+        posts = Post.objects.filter(visibility="ALL").select_related("created_by").order_by("-created_at")
         return Response([
             {
                 "post_id": post.post_id,

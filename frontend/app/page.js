@@ -109,7 +109,7 @@ function Login({ onLogin }) {
 function View({ role, id, token, user }) {
   if (role === "ADMIN") {
     if (id === "users") return <AdminUsers token={token} />;
-    if (id === "academic") return <><DepartmentBuilder token={token} /><ProgramsPanel token={token} /><AdminAcademic token={token} /></>;
+    if (id === "academic") return <AdminAcademic token={token} />;
     if (id === "programs") return <><DepartmentBuilder token={token} /><ProgramsPanel token={token} /></>;
     if (id === "communication") return <AdminPosts token={token} />;
     return <AdminUsers token={token} />;
@@ -225,7 +225,7 @@ function CreateUser({ token, close, done }) {
 }
 
 function AdminAcademic({ token }) {
-  const [options, setOptions] = useState({ students: [], faculty: [], programs: [], semesters: [], academic_years: [], sections: [], subjects: [] });
+  const [options, setOptions] = useState({ students: [], faculty: [], programs: [], semesters: [], academic_years: [], subjects: [] });
   const [assignments, setAssignments] = useState([]);
   const [studentForm, setStudentForm] = useState({ admission_number: "", program: "", semester: "" });
   const [studentLookup, setStudentLookup] = useState(null);
@@ -272,22 +272,11 @@ function AdminAcademic({ token }) {
     setMessage(""); setError("");
     if (!studentLookup) { setError("Look up a student first."); return; }
     try {
-      // Find a section matching program + semester (use first available, picking latest academic year)
-      const matchingSections = options.sections.filter((s) =>
-        String(s.program_id) === String(studentForm.program) &&
-        String(s.semester_id) === String(studentForm.semester)
-      ).sort((a, b) => b.academic_year_id - a.academic_year_id);
-      
-      const sectionId = matchingSections.length > 0 ? matchingSections[0].section_id : null;
-      const academicYearId = matchingSections.length > 0 ? matchingSections[0].academic_year_id : null;
-
       await request(`/admin/students/${studentLookup.student_id}/academic/`, token, {
         method: "PATCH",
         body: JSON.stringify({
           program: Number(studentForm.program),
           semester: Number(studentForm.semester),
-          section: sectionId ? Number(sectionId) : undefined,
-          academic_year: academicYearId ? Number(academicYearId) : undefined,
         })
       });
       setMessage("Student placement saved successfully.");
@@ -381,7 +370,7 @@ function AdminAcademic({ token }) {
         </form>
       </div>
       <InfoPanel title="Current faculty assignments" kicker="TEACHING MAP">
-        <DataTable columns={["Faculty", "Subject", "Section", "Semester", "Year"]} rows={assignments.map((a) => [a.faculty_name || a.faculty, a.subject_code || a.subject, a.section_code || a.section, a.semester_number || a.semester, a.academic_year_code || a.academic_year])} />
+        <DataTable columns={["Faculty", "Subject", "Semester", "Year"]} rows={assignments.map((a) => [a.faculty_name || a.faculty, a.subject_code || a.subject, a.semester_number || a.semester, a.academic_year_code || a.academic_year])} />
       </InfoPanel>
     </DashboardFrame>
   );
@@ -744,14 +733,12 @@ function FacultyView({ id, token }) {
 
 function FacultyTeaching({ token }) { 
   const [subjects, setSubjects] = useState([]); 
-  const [sections, setSections] = useState([]); 
-  const [form, setForm] = useState({ subject: "", section: "", attendance_date: new Date().toISOString().slice(0, 10), start_time: "09:00", end_time: "10:00" });
+  const [form, setForm] = useState({ subject: "", attendance_date: new Date().toISOString().slice(0, 10), start_time: "09:00", end_time: "10:00" });
   const [message, setMessage] = useState("");
 
   useEffect(() => { 
-    Promise.all([request("/faculty/subjects/", token), request("/faculty/sections/", token)]).then(([a, b]) => { 
-      setSubjects(a.results || a); 
-      setSections(b); 
+    request("/faculty/subjects/", token).then((data) => { 
+      setSubjects(data.results || data); 
     }); 
   }, [token]); 
   
@@ -759,12 +746,22 @@ function FacultyTeaching({ token }) {
   async function submit(event) {
     event.preventDefault();
     try {
-      await request("/faculty/attendance/", token, { method: "POST", body: JSON.stringify(form) });
+      // Find the selected subject to get semester and academic_year
+      const selectedSubject = subjects.find(s => String(s.subject) === String(form.subject));
+      if (!selectedSubject) throw new Error("Invalid subject selected.");
+      
+      const payload = {
+        ...form,
+        semester: selectedSubject.semester,
+        academic_year: selectedSubject.academic_year
+      };
+      
+      await request("/faculty/attendance/", token, { method: "POST", body: JSON.stringify(payload) });
       setMessage("Class scheduled successfully.");
     } catch (err) { setMessage(err.message); }
   }
 
-  return <DashboardFrame eyebrow="TEACHING" title="Your assignments" description="Subject and section assignments are controlled by academic administration."><div className="metric-grid">{subjects.map((item) => <article className="subject-card" key={item.faculty_subject_id}><span className="subject-code">{item.subject_code}</span><h2>{item.subject_name}</h2><p>Semester {item.semester_number} · {item.section_code}</p><small>{item.academic_year_code}</small></article>)}</div><div className="split-grid"><InfoPanel title="Assigned sections" kicker="CLASSES"><DataTable columns={["Section", "Program", "Semester", "Students"]} rows={sections.map((item) => [item.section_code, item.program, item.semester, item.students])} /></InfoPanel><form className="panel compact-form" onSubmit={submit}><div className="panel-head"><div><span className="eyebrow">SCHEDULE</span><h2>Create a class</h2></div><button className="primary-button compact">Schedule</button></div><div className="form-grid"><Field label="Subject"><select required value={form.subject} onChange={(e) => update("subject", e.target.value)}><option value="">Choose subject</option>{subjects.map((item) => <option key={item.faculty_subject_id} value={item.subject}>{item.subject_code} · {item.section_code}</option>)}</select></Field><Field label="Section"><select required value={form.section} onChange={(e) => update("section", e.target.value)}><option value="">Choose section</option>{sections.map((item) => <option key={item.section_id} value={item.section_id}>{item.section_code} · Semester {item.semester}</option>)}</select></Field><Field label="Date"><input type="date" required value={form.attendance_date} onChange={(e) => update("attendance_date", e.target.value)} /></Field><Field label="Start time"><input type="time" required value={form.start_time} onChange={(e) => update("start_time", e.target.value)} /></Field><Field label="End time"><input type="time" required value={form.end_time} onChange={(e) => update("end_time", e.target.value)} /></Field></div>{message && <p className="form-message">{message}</p>}</form></div></DashboardFrame>; 
+  return <DashboardFrame eyebrow="TEACHING" title="Your assignments" description="Subject assignments are controlled by academic administration."><div className="metric-grid">{subjects.map((item) => <article className="subject-card" key={item.faculty_subject_id}><span className="subject-code">{item.subject_code}</span><h2>{item.subject_name}</h2><p>Semester {item.semester_number}</p><small>{item.academic_year_code}</small></article>)}</div><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><div className="panel-head"><div><span className="eyebrow">SCHEDULE</span><h2>Create a class</h2></div><button className="primary-button compact">Schedule</button></div><div className="form-grid"><Field label="Subject"><select required value={form.subject} onChange={(e) => update("subject", e.target.value)}><option value="">Choose subject</option>{subjects.map((item) => <option key={item.faculty_subject_id} value={item.subject}>{item.subject_code} (Sem {item.semester_number})</option>)}</select></Field><Field label="Date"><input type="date" required value={form.attendance_date} onChange={(e) => update("attendance_date", e.target.value)} /></Field><Field label="Start time"><input type="time" required value={form.start_time} onChange={(e) => update("start_time", e.target.value)} /></Field><Field label="End time"><input type="time" required value={form.end_time} onChange={(e) => update("end_time", e.target.value)} /></Field></div>{message && <p className="form-message">{message}</p>}</form></div></DashboardFrame>; 
 }
 
 function FacultyAttendance({ token }) { 
@@ -785,7 +782,7 @@ function FacultyAttendance({ token }) {
 
   useEffect(() => { 
     if (!expanded) return;
-    request(`/faculty/sections/${expanded.section_id}/students/`, token).then((items) => { 
+    request(`/faculty/students/`, token).then((items) => { 
       setStudents(items); 
       setStatuses(Object.fromEntries(items.map((item) => [item.student_id, "PRESENT"]))); 
     }); 
@@ -807,20 +804,18 @@ function FacultyAttendance({ token }) {
     } catch (err) { setMessage(err.message); } 
   } 
 
-  return <DashboardFrame eyebrow="ATTENDANCE" title="Attendance at a glance" description="Mark attendance for completed classes."><div className="panel"><div className="panel-head"><div><span className="eyebrow">CLASSES</span><h2>Scheduled classes</h2></div></div><div style={{ padding: "0 24px" }}>{sessions.length === 0 ? <p className="panel-copy" style={{ padding: "24px 0" }}>No classes scheduled.</p> : sessions.map((session) => <div key={session.attendance_session_id} style={{ borderBottom: "1px solid var(--line)", padding: "16px 0" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><strong>{session.subject} · {session.section}</strong><div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>{session.attendance_date} | {session.start_time} - {session.end_time}</div></div>{session.status === "COMPLETED" ? <span style={{ color: "var(--primary-color)", fontSize: "12px", fontWeight: "600", padding: "4px 8px", background: "var(--primary-bg)", borderRadius: "4px" }}>COMPLETED</span> : <button className="primary-button compact" onClick={() => { setExpanded(expanded?.attendance_session_id === session.attendance_session_id ? null : session); setMessage(""); }}>{expanded?.attendance_session_id === session.attendance_session_id ? "Close" : "Take attendance"}</button>}</div>{expanded?.attendance_session_id === session.attendance_session_id && <form className="attendance-form" style={{ marginTop: "16px", padding: "16px", background: "var(--secondary-bg)", borderRadius: "8px" }} onSubmit={submit}><h4 style={{ margin: "0 0 16px 0", fontSize: "14px" }}>Mark Attendance</h4>{message && <p className="form-message">{message}</p>}<div className="attendance-list">{students.map((student) => <div key={student.student_id}><span><strong>{student.roll_number || "—"}</strong> {student.name}</span><div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>{["PRESENT", "ABSENT", "LATE", "EXCUSED"].map(status => <label key={status} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="radio" name={`status-${student.student_id}`} value={status} checked={statuses[student.student_id] === status} onChange={(e) => setStatuses({ ...statuses, [student.student_id]: e.target.value })} />{status}</label>)}</div></div>)}</div><div style={{ marginTop: "16px", display: "flex", gap: "10px" }}><button type="submit" className="primary-button compact">Mark class completed</button><button type="button" className="secondary-button compact" onClick={() => setExpanded(null)}>Cancel</button></div></form>}</div>)}</div></div></DashboardFrame>; 
+  return <DashboardFrame eyebrow="ATTENDANCE" title="Attendance at a glance" description="Mark attendance for completed classes."><div className="panel"><div className="panel-head"><div><span className="eyebrow">CLASSES</span><h2>Scheduled classes</h2></div></div><div style={{ padding: "0 24px" }}>{sessions.length === 0 ? <p className="panel-copy" style={{ padding: "24px 0" }}>No classes scheduled.</p> : sessions.map((session) => <div key={session.attendance_session_id} style={{ borderBottom: "1px solid var(--line)", padding: "16px 0" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><strong>{session.subject} (Sem {session.semester})</strong><div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>{session.attendance_date} | {session.start_time} - {session.end_time}</div></div>{session.status === "COMPLETED" ? <span style={{ color: "var(--primary-color)", fontSize: "12px", fontWeight: "600", padding: "4px 8px", background: "var(--primary-bg)", borderRadius: "4px" }}>COMPLETED</span> : <button className="primary-button compact" onClick={() => { setExpanded(expanded?.attendance_session_id === session.attendance_session_id ? null : session); setMessage(""); }}>{expanded?.attendance_session_id === session.attendance_session_id ? "Close" : "Take attendance"}</button>}</div>{expanded?.attendance_session_id === session.attendance_session_id && <form className="attendance-form" style={{ marginTop: "16px", padding: "16px", background: "var(--secondary-bg)", borderRadius: "8px" }} onSubmit={submit}><h4 style={{ margin: "0 0 16px 0", fontSize: "14px" }}>Mark Attendance</h4>{message && <p className="form-message">{message}</p>}<div className="attendance-list">{students.map((student) => <div key={student.student_id}><span><strong>{student.roll_number || "—"}</strong> {student.name}</span><div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>{["PRESENT", "ABSENT", "LATE", "EXCUSED"].map(status => <label key={status} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}><input type="radio" name={`status-${student.student_id}`} value={status} checked={statuses[student.student_id] === status} onChange={(e) => setStatuses({ ...statuses, [student.student_id]: e.target.value })} />{status}</label>)}</div></div>)}</div><div style={{ marginTop: "16px", display: "flex", gap: "10px" }}><button type="submit" className="primary-button compact">Mark class completed</button><button type="button" className="secondary-button compact" onClick={() => setExpanded(null)}>Cancel</button></div></form>}</div>)}</div></div></DashboardFrame>; 
 }
 
 
 
 function FacultyCommunication({ token }) { 
   const [posts, setPosts] = useState([]); 
-  const [sections, setSections] = useState([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => { 
-    Promise.all([request("/faculty/posts/", token), request("/faculty/sections/", token)]).then(([a, b]) => {
-      setPosts(a.results || a);
-      setSections(b);
+    request("/faculty/posts/", token).then((data) => {
+      setPosts(data.results || data);
     });
   }, [token]); 
   
@@ -836,7 +831,7 @@ function FacultyCommunication({ token }) {
     } catch(err) { setMessage(err.message); }
   }
 
-  return <DashboardFrame eyebrow="COMMUNICATION" title="Class communication" description="Publish updates to the sections assigned to you."><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><span className="eyebrow">NEW POST</span><h2>Create an update</h2><Field label="Section"><select name="section" required><option value="">Choose a section</option>{sections.map((sec) => <option key={sec.section_id} value={sec.section_id}>{sec.section_code} (Sem {sec.semester})</option>)}</select></Field><Field label="Title"><input name="title" required /></Field><Field label="Message"><textarea name="content" required rows="4" /></Field>{message && <p className="form-message">{message}</p>}<button className="primary-button compact">Publish post</button></form><InfoPanel title="Your posts" kicker="SECTION UPDATES"><DataTable columns={["Title", "Visibility", "Created"]} rows={posts.map((item) => [item.title, item.visibility, new Date(item.created_at).toLocaleDateString()])} /></InfoPanel></div></DashboardFrame>; 
+  return <DashboardFrame eyebrow="COMMUNICATION" title="Class communication" description="Publish updates to the students."><div className="split-grid"><form className="panel compact-form" onSubmit={submit}><span className="eyebrow">NEW POST</span><h2>Create an update</h2><Field label="Title"><input name="title" required /></Field><Field label="Message"><textarea name="content" required rows="4" /></Field>{message && <p className="form-message">{message}</p>}<button className="primary-button compact">Publish post</button></form><InfoPanel title="Your posts" kicker="UPDATES"><DataTable columns={["Title", "Visibility", "Created"]} rows={posts.map((item) => [item.title, item.visibility, new Date(item.created_at).toLocaleDateString()])} /></InfoPanel></div></DashboardFrame>; 
 }
 
 function DashboardFrame({ eyebrow, title, description, children }) { return <><div className="page-intro"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>{children}</>; }

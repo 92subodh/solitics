@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from academics.models import AcademicYear, Department, FacultySubject, Program, ProgramSubject, Section, SectionStudent, Semester, Subject
+from academics.models import AcademicYear, Department, FacultySubject, Program, ProgramSubject, Semester, Subject
 from .academic_admin_serializers import AdminDepartmentCreateSerializer, AdminProgramCreateSerializer, FacultyAssignmentSerializer, StudentAcademicPlacementSerializer
 from .models import FacultyProfile, StudentProfile, User
 
@@ -29,7 +29,6 @@ class AdminAcademicOptionsView(AdminAcademicMixin, APIView):
             "programs": list(Program.objects.order_by("program_name").values("id", "program_code", "program_name", "department_id")),
             "semesters": list(Semester.objects.order_by("program_id", "semester_number").values("id", "program_id", "semester_number", "name")),
             "academic_years": list(AcademicYear.objects.order_by("-start_date").values("id", "year_code")),
-            "sections": list(Section.objects.order_by("program_id", "section_code").values("section_id", "program_id", "semester_id", "academic_year_id", "section_code")),
             "subjects": list(Subject.objects.order_by("subject_code").values("id", "subject_code", "subject_name")),
         })
 
@@ -181,7 +180,7 @@ class AdminStudentAcademicView(AdminAcademicMixin, APIView):
     def get(self, request, pk):
         self.ensure_admin(request)
         student = StudentProfile.objects.select_related("user", "program", "department").get(pk=pk)
-        section = student.sections.select_related("program", "semester", "academic_year").order_by("-section_id").first()
+        enrollment = student.enrollments.select_related("semester", "academic_year").order_by("-enrollment_id").first()
         return Response({
             "student_id": student.student_id,
             "name": student.user.display_name,
@@ -189,8 +188,7 @@ class AdminStudentAcademicView(AdminAcademicMixin, APIView):
             "program": student.program_id,
             "department": student.department_id,
             "semester": student.current_semester,
-            "section": section.section_id if section else None,
-            "academic_year": section.academic_year_id if section else None,
+            "academic_year": enrollment.academic_year_id if enrollment else None,
             "roll_number": student.current_roll_number,
             "status": student.status,
         })
@@ -202,35 +200,45 @@ class AdminStudentAcademicView(AdminAcademicMixin, APIView):
         serializer = StudentAcademicPlacementSerializer(data=request.data, context={"student": student})
         serializer.is_valid(raise_exception=True)
         placement = serializer.validated_data
-        section = placement["section_object"]
-        student.program_id = section.program_id
-        student.department_id = section.program.department_id
-        student.current_semester = section.semester.semester_number
+
+        program = Program.objects.get(pk=placement["program"])
+        semester = Semester.objects.get(pk=placement["semester"])
+
+        student.program = program
+        student.department = program.department
+        student.current_semester = semester.semester_number
         if "roll_number" in placement:
             student.current_roll_number = placement["roll_number"]
         if "status" in placement:
             student.status = placement["status"]
         student.save(update_fields=("program", "department", "current_semester", "current_roll_number", "status"))
-        SectionStudent.objects.filter(student=student).exclude(section=section).delete()
-        SectionStudent.objects.get_or_create(section=section, student=student)
-        enrollment, _ = student.enrollments.update_or_create(
-            academic_year=section.academic_year,
-            semester=section.semester,
-            defaults={
-                "program": section.program,
-                "roll_number": student.current_roll_number,
-                "section": section.section_code,
-                "status": student.status,
-                "active": True,
-            },
-        )
+
+        academic_year_id = placement.get("academic_year")
+        if not academic_year_id:
+            latest_year = AcademicYear.objects.order_by("-start_date").first()
+            academic_year_id = latest_year.pk if latest_year else None
+
+        enrollment_defaults = {
+            "program": program,
+            "roll_number": student.current_roll_number,
+            "status": student.status,
+            "active": True,
+        }
+        if academic_year_id:
+            enrollment, _ = student.enrollments.update_or_create(
+                academic_year_id=academic_year_id,
+                semester=semester,
+                defaults=enrollment_defaults,
+            )
+        else:
+            enrollment = student.enrollments.create(semester=semester, **enrollment_defaults)
+
         return Response({
             "student_id": student.student_id,
-            "program": section.program_id,
-            "department": section.program.department_id,
-            "semester": section.semester.semester_number,
-            "section": section.section_id,
-            "academic_year": section.academic_year_id,
+            "program": program.pk,
+            "department": program.department_id,
+            "semester": semester.semester_number,
+            "academic_year": academic_year_id,
             "roll_number": student.current_roll_number,
             "enrollment_id": enrollment.enrollment_id,
         })
@@ -242,17 +250,11 @@ class AdminFacultyAssignmentView(AdminAcademicMixin, generics.ListCreateAPIView)
     def get_queryset(self):
         self.ensure_admin(self.request)
         queryset = FacultySubject.objects.select_related(
-            "faculty__employee__user", "subject", "section__program", "semester", "academic_year"
+            "faculty__employee__user", "subject", "semester", "academic_year"
         ).order_by("faculty__employee__user__last_name", "subject__subject_code")
         faculty = self.request.query_params.get("faculty")
-        program = self.request.query_params.get("program")
-        section = self.request.query_params.get("section")
         if faculty:
             queryset = queryset.filter(faculty_id=faculty)
-        if program:
-            queryset = queryset.filter(section__program_id=program)
-        if section:
-            queryset = queryset.filter(section_id=section)
         return queryset
 
     @transaction.atomic

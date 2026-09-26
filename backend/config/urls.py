@@ -10,7 +10,6 @@ from communication.views import PostViewSet
 from accounts.faculty_views import (
     FacultyAttendanceView,
     FacultyPostView,
-    FacultySectionsView,
     FacultyStudentsView,
     FacultySubjectsView,
 )
@@ -51,8 +50,6 @@ urlpatterns = [
     path("api/admin/faculty-assignments/<int:pk>/", AdminFacultyAssignmentDetailView.as_view()),
     # Faculty
     path("api/faculty/subjects/", FacultySubjectsView.as_view()),
-    path("api/faculty/sections/", FacultySectionsView.as_view()),
-    path("api/faculty/sections/<int:section_id>/students/", FacultyStudentsView.as_view()),
     path("api/faculty/students/", FacultyStudentsView.as_view()),
     path("api/faculty/attendance/", FacultyAttendanceView.as_view()),
     path("api/faculty/attendance/<int:pk>/", FacultyAttendanceView.as_view()),

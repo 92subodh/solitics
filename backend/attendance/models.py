@@ -5,7 +5,7 @@ class AttendanceSession(models.Model):
     attendance_session_id = models.BigAutoField(primary_key=True)
     subject = models.ForeignKey("academics.Subject", on_delete=models.PROTECT, related_name="attendance_sessions")
     faculty = models.ForeignKey("accounts.FacultyProfile", on_delete=models.PROTECT, related_name="attendance_sessions")
-    section = models.ForeignKey("academics.Section", on_delete=models.PROTECT, related_name="attendance_sessions")
+    semester = models.ForeignKey("academics.Semester", on_delete=models.PROTECT, related_name="attendance_sessions", null=True, blank=True)
     attendance_date = models.DateField()
     start_time = models.TimeField()
     end_time = models.TimeField()

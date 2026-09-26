@@ -50,6 +50,8 @@ class Subject(models.Model):
     subject_name = models.CharField(max_length=150)
     subject_type = models.CharField(max_length=50, blank=True)
     credits = models.PositiveSmallIntegerField(default=3)
+    max_marks = models.PositiveIntegerField(default=100)
+    passing_marks = models.PositiveIntegerField(default=40)
     class Meta: ordering = ("subject_code",)
     def __str__(self): return self.subject_code
 
@@ -69,13 +71,12 @@ class FacultySubject(models.Model):
     subject = models.ForeignKey("academics.Subject", on_delete=models.PROTECT, related_name="faculty_assignments")
     academic_year = models.ForeignKey("academics.AcademicYear", on_delete=models.PROTECT, related_name="faculty_assignments")
     semester = models.ForeignKey("academics.Semester", on_delete=models.PROTECT, related_name="faculty_assignments")
-    section = models.ForeignKey("academics.Section", on_delete=models.PROTECT, related_name="faculty_assignments")
 
     class Meta:
-        ordering = ("academic_year", "semester", "section", "subject")
+        ordering = ("academic_year", "semester", "subject")
         constraints = [
             models.UniqueConstraint(
-                fields=("faculty", "subject", "academic_year", "semester", "section"),
+                fields=("faculty", "subject", "academic_year", "semester"),
                 name="unique_faculty_subject_assignment",
             )
         ]
@@ -89,29 +90,8 @@ class Enrollment(models.Model):
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.PROTECT, null=True, blank=True, related_name="enrollments")
     semester = models.ForeignKey(Semester, on_delete=models.PROTECT, null=True, blank=True, related_name="enrollments")
     roll_number = models.CharField(max_length=30, blank=True)
-    section = models.CharField(max_length=30, blank=True)
     enrollment_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=30, default="ACTIVE")
     active = models.BooleanField(default=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=("student", "academic_year", "semester"), name="unique_student_academic_enrollment")]
-
-
-class Section(models.Model):
-    section_id = models.BigAutoField(primary_key=True)
-    program = models.ForeignKey(Program, on_delete=models.PROTECT, related_name="sections")
-    semester = models.ForeignKey(Semester, on_delete=models.PROTECT, related_name="sections")
-    academic_year = models.ForeignKey(AcademicYear, on_delete=models.PROTECT, related_name="sections")
-    section_code = models.CharField(max_length=30)
-    capacity = models.PositiveIntegerField(default=60)
-    students = models.ManyToManyField("accounts.StudentProfile", through="SectionStudent", related_name="sections")
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=("program", "semester", "academic_year", "section_code"), name="unique_academic_section")]
-
-
-class SectionStudent(models.Model):
-    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="student_links")
-    student = models.ForeignKey("accounts.StudentProfile", on_delete=models.CASCADE, related_name="section_links")
-    assigned_at = models.DateTimeField(auto_now_add=True)
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=("section", "student"), name="unique_section_student")]
